@@ -1,6 +1,6 @@
 var squel = require('squel');
 
-function parse_query_key(sql, key, value) {
+function parse_query_key(sql, key, value, previous_key) {
 	switch (key) {
 		/* array operators */
 		case '$all':
@@ -17,18 +17,23 @@ function parse_query_key(sql, key, value) {
 
 		/* comparison operators */
 		case '$gt':
+			sql.where(previous_key + ' > ' + value);
 			break;
 
 		case '$gte':
+			sql.where(previous_key + ' >= ' + value);
 			break;
 
 		case '$lt':
+			sql.where(previous_key + ' < ' + value);
 			break;
 
 		case '$lte':
+			sql.where(previous_key + ' <= ' + value);
 			break;
 
 		case '$ne':
+			sql.where(previous_key + ' <> ' + value);
 			break;
 
 		case '$nin':
@@ -97,8 +102,8 @@ function parse_query_key(sql, key, value) {
 				}
 
 				else {
-					Object.keys(value).forEach(function (key) {
-						parse_query_key(sql, key, value[key]);
+					Object.keys(value).forEach(function (obj_key) {
+						parse_query_key(sql, obj_key, value[obj_key], key);
 					});
 				}
 			}
@@ -125,7 +130,12 @@ function find(collection, query, fields) {
 }
 
 var query = {
-	'field': 1
+	'field': {
+		'$gt': 1
+	},
+	'field2': {
+		'$lt': 2
+	}
 };
 
 var fields = {
