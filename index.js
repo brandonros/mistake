@@ -1,6 +1,8 @@
 var squel = require('squel');
 
-function parse_query_key(sql, key, value, previous_key) {
+squel.useFlavour('postgres');
+
+function parse_query_key(key, value, previous_key) {
 	switch (key) {
 		/* array operators */
 		case '$all':
@@ -17,36 +19,55 @@ function parse_query_key(sql, key, value, previous_key) {
 
 		/* comparison operators */
 		case '$gt':
-			sql.where(previous_key + ' > ' + value);
+			return '(' + previous_key + ' > ' + value + ')';
 			break;
 
 		case '$gte':
-			sql.where(previous_key + ' >= ' + value);
+			return '(' + previous_key + ' >= ' + value + ')';
 			break;
 
 		case '$lt':
-			sql.where(previous_key + ' < ' + value);
+			return '(' + previous_key + ' < ' + value + ')';
 			break;
 
 		case '$lte':
-			sql.where(previous_key + ' <= ' + value);
+			return '(' + previous_key + ' <= ' + value + ')';
 			break;
 
 		case '$ne':
-			sql.where(previous_key + ' <> ' + value);
+			return '(' + previous_key + ' <> ' + value + ')';
 			break;
 
 		case '$nin':
-			throw new Error('Unsupported');
+			if (typeof value !== 'object' || !Array.isArray(value)) {
+				throw new Error('Invalid value');
+			}
+
+			return '(' + previous_key + ' NOT IN (' + value.join(',') + '))';
 			break;
 
 		case '$in':
-			throw new Error('Unsupported');
+			if (typeof value !== 'object' || !Array.isArray(value)) {
+				throw new Error('Invalid value');
+			}
+			
+			return '(' + previous_key + ' IN (' + value.join(',') + '))';
 			break;
 
 		/* element operators */
 		case '$exists':
-			throw new Error('Unsupported');
+			if (typeof value !== 'boolean') {
+				throw new Error('Invalid value');
+			}
+
+			if (value) {
+				return '(' + previous_key + ' is not null)';
+			}
+
+			else {
+				return '(' + previous_key + ' is null)';
+			}
+
 			break;
 
 		case '$type':
@@ -72,7 +93,30 @@ function parse_query_key(sql, key, value, previous_key) {
 			break;
 
 		case '$or':
-			throw new Error('Unsupported');
+			if (typeof value !== 'object' || !Array.isArray(value)) {
+				throw new Error('Invalid value');
+			}
+
+			var clause = '(';
+
+			value.forEach(function (v, index) {
+				if (typeof v !== 'object') {
+					throw new Error('Invalid value');
+				}
+
+				Object.keys(v).forEach(function (k) {
+					clause += parse_query_key(k, v[k], previous_key);
+				});
+
+				if (index !== value.length - 1) {
+					clause += ' OR ';
+				}
+			});
+
+			clause += ')';
+
+			return clause;
+
 			break;
 
 		case '$nor':
@@ -84,27 +128,35 @@ function parse_query_key(sql, key, value, previous_key) {
 			break;
 
 		default: {
-			if (typeof value === 'number') {
-				sql.where(key + ' = ' + value);
-			}
-
-			else if (typeof value === 'string') {
-				sql.where(key + ' = ' + value);
+			if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+				return '(' + key + ' = ' + value + ')';
 			}
 
 			else if (typeof value === 'object') {
 				if (value === null) {
-					sql.where(key + ' = ' + value);
+					return '(' + key + ' IS NULL)';
 				}
 
 				else if (Array.isArray(value)) {
-
+					return '(' + key + ' = ' + JSON.stringify(value) + ')';
 				}
 
 				else {
-					Object.keys(value).forEach(function (obj_key) {
-						parse_query_key(sql, obj_key, value[obj_key], key);
+					var clause = '(';
+
+					var keys = Object.keys(value);
+
+					keys.forEach(function (obj_key, index) {
+						clause += parse_query_key(obj_key, value[obj_key], key);
+
+						if (index !== keys.length - 1) {
+							clause += ' AND ';
+						}
 					});
+
+					clause += ')';
+
+					return clause;
 				}
 			}
 		}
@@ -122,19 +174,34 @@ function find(collection, query, fields) {
 		}
 	});
 
-	Object.keys(query).forEach(function (key) {
-		parse_query_key(sql, key, query[key]);
+	var clause = '';
+
+	var keys = Object.keys(query);
+
+	keys.forEach(function (key, index) {
+		clause += parse_query_key(key, query[key]);
+
+		if (index !== keys.length - 1) {
+			clause += ' AND ';
+		}
 	});
+
+	sql.where(clause);
 
 	return sql.toString();
 }
 
 var query = {
 	'field': {
-		'$gt': 1
+		'$or': [{
+			'$gt': 1
+		},
+		{
+			'$gt': 2
+		}]
 	},
 	'field2': {
-		'$lt': 2
+		'$in': ['1', 2]
 	}
 };
 
